@@ -6,9 +6,158 @@
  * that uses this code in a for-profit venture, please contact the copyright holder.
  */
 
+/* Start - Minimal one element selected
+ * Parameter:
+ * * Fieldset element where the input must be selected at least one.
+ * * Message to be displayed when none of the elements in the fieldset is selected.
+ */
+var validateSelected = function (source) {
+    var errors = {};
+    var fieldSet = $(source).filter(':visible');
+    if (fieldSet.length) {
+        var tag = fieldSet.prop('tagName');
+        // check if the source element is a field set (or other container in the future).
+        if (tag.toLowerCase() != 'fieldset') {
+            // if not, then this is an input element. And then get the closest field set.
+            fieldSet = $(source).closest('fieldset');
+            // if we can't find the fieldset container, then just return the empty validation errors.
+            if (!fieldSet.length) {
+                return errors;
+            }
+        }
+        // get the visible inputs element that are checked
+        var checkedInput = $(fieldSet).find('input:checked');
+        if (checkedInput.length == 0) {
+            errors[$(fieldSet).attr('name')] = "This question must be answered.";
+        }
+    }
+    return errors;
+};
+/* End - Minimal one element selected */
+
+/* Start - Selecting an element should be single selection
+ * * Parameter:
+ * * Fieldset element where the input should be a single selection or the collection of checkboxes elements.
+ * * Values which should be a single selection.
+ * * Message to be displayed when the element is selected with other element.
+ */
+var validateAlone = function (source, values, message) {
+    var errors = {};
+    var fieldSet = $(source).filter(':visible');
+    if (fieldSet.length) {
+        var tag = fieldSet.prop('tagName');
+        // if the tag is not fieldset, then it is an input.
+        // then get the closest fieldset for the inputs (which must be a fieldset).
+        if (tag.toLowerCase() != 'fieldset') {
+            fieldSet = $(source).closest('fieldset');
+            // if we can't find the fieldset container, then just return the empty validation errors.
+            if (!fieldSet.length) {
+                return errors;
+            }
+        }
+        var checkedBoxes = $(fieldSet).find('input:checkbox:checked');
+        if (checkedBoxes.length > 1) {
+            $.each(checkedBoxes, function (i, checkBox) {
+                $.each(values, function (j, value) {
+                    if ($(checkBox).val() == value) {
+                        errors[$(fieldSet).attr('name')] = message;
+                    }
+                })
+            })
+        }
+    }
+    return errors;
+};
+/* End - Selecting an element should be single selection */
+
+/* Start - Show and hide validation error messages */
+var showValidationMessages = function (errors) {
+    var validator = $('form').validate();
+    if (!$.isEmptyObject(errors)) {
+        validator.showErrors(errors);
+    }
+};
+
+var toggleValidationMessages = function (errors) {
+    var validator = $('form').validate();
+    if ($.isEmptyObject(errors)){
+        // remove the error messages
+        validator.resetForm();
+    } else {
+        // show the error messages
+        validator.showErrors(errors);
+    }
+};
+/* End - Show and hide validation error messages */
+
 $(document).ready(function () {
     'use strict';
-    var dateFormat = "yy-mm-dd";
+    var dateFormat = "dd-mm-yy";
+
+    if (htmlDataStore.getStatus().toLowerCase() == 'complete') {
+        $('input, select, textarea').prop('disabled', true);
+    }
+
+    /* Start - Toggle free text element */
+    var hasFreetext = $('.has-freetext');
+    hasFreetext.change(function () {
+        var freetext = $(this).closest('.section').find('.freetext');
+        if ($(this).is(':checkbox')) {
+            if ($(this).is(':checked')) {
+                freetext.show();
+            } else {
+                freetext.hide();
+            }
+        }
+    });
+    hasFreetext.trigger('change');
+    /* End - Toggle free text element */
+
+    /* Start - Toggle future date validation */
+    $('.future-date').change(function () {
+        if ($(this).is(':visible') && $(this).val() != '') {
+            var errors = {};
+            var pattern = /(\d{2})-(\d{2})-(\d{4})/g;
+            var matches = pattern.exec($(this).val());
+            if (matches != null && matches.length > 3) {
+                var enteredDate = new Date(matches[3], matches[2] - 1, matches[1]);
+                var reference = new Date();
+                var today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate());
+                if (enteredDate <= today) {
+                    errors[$(this).attr('name')] = "Please enter a date in the future.";
+                }
+            }
+            toggleValidationMessages(errors);
+        }
+    });
+    /* End - Toggle future date validation */
+
+    /* Start - Toggle past date validation */
+    $('.past-date').change(function () {
+        if ($(this).is(':visible') && $(this).val() != '') {
+            var errors = {};
+            var pattern = /(\d{2})-(\d{2})-(\d{4})/g;
+            var matches = pattern.exec($(this).val());
+            if (matches != null && matches.length > 3) {
+                var enteredDate = new Date(matches[3], matches[2] - 1, matches[1]);
+                var reference = new Date();
+                var today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate());
+                if (enteredDate > today) {
+                    errors[$(this).attr('name')] = "Please enter a date prior or equal to today.";
+                }
+            }
+            toggleValidationMessages(errors);
+        }
+    });
+    /* End - Toggle past date validation */
+
+    /* Start - Removing error message in the container of checkbox and radio */
+    $('input:checkbox, input:radio').change(function () {
+        var container = $(this).closest('fieldset');
+        $(container).removeClass('error');
+        $(container).parent().find('label.error').remove();
+    });
+    /* End - Removing error message in the container of checkbox and radio */
 
     /* Start - Function to save the form */
     document.submit = function () {
@@ -17,18 +166,42 @@ $(document).ready(function () {
             validForm = validForm && $.fn.customValidationCheck();
         }
         if (validForm) {
-            save("complete");
+            save("complete", false);
+        } else {
+            addValidationMessage();
         }
     };
 
+    document.autoSaveForm = function(){
+        save("incomplete", true);
+    };
+
     document.saveDraft = function () {
-        save("incomplete");
+        save("incomplete", false);
         return false;
     };
 
-    var save = function (status) {
+    var save = function (status, keepFormOpen) {
         var jsonData = JSON.stringify($('form').serializeEncounterForm());
-        htmlDataStore.saveHTML(jsonData, status);
+        htmlDataStore.saveHTML(jsonData, status, keepFormOpen);
+    };
+
+    var addValidationMessage = function () {
+        var validationError = $('#validation-error');
+        if (validationError.length == 0) {
+            $('form').prepend(
+                '<div class="error" id="validation-error">' +
+                '    There is one or more validation check failed on this form. Please review and resubmit the form' +
+                '</div>'
+            );
+        } else {
+            validationError.html('There is one or more validation failed on this form. Please review and resubmit the form');
+        }
+        $('html, body').animate({ scrollTop: 0 }, 'slow');
+    };
+
+    var removeValidationMessage = function () {
+        $('#validation-error').remove();
     };
     /* End - Function to save the form */
 
@@ -118,6 +291,18 @@ $(document).ready(function () {
 
     /*End- Video Capture Functionality*/
 
+    /* Start - Play video in form */
+    $('.video-player').click(function(){
+        videoComponent.openVideo($(this).attr('data-video'));
+    });
+    /* End - Play video in form */
+
+    /* Start - view Image in form */
+    $('.image-player').click(function(){
+        imagingComponent.openImage($(this).attr('data-image'));
+    });
+    /* End - view Image in form */ /* Start - view Image in form */
+
     /* Start - Initialize jQuery DatePicker */
 
     $('.datepicker').datepicker({
@@ -182,10 +367,15 @@ $(document).ready(function () {
 
     $.validator.addMethod("nonFutureDate", function (value, element) {
             if ($.fn.isNotRequiredAndEmpty(value, element)) return true;
-            var enteredDate = new Date(value);
-            var today = new Date();
+            var pattern = /(\d{2})-(\d{2})-(\d{4})/g;
+            var matches = pattern.exec(value);
+            if (matches == null || matches.length < 4) {
+                return false;
+            }
+            var enteredDate = new Date(matches[3], matches[2] - 1, matches[1]);
+            var reference = new Date();
+            var today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate());
             return enteredDate <= today;
-
         }, "Please enter a date prior or equal to today."
     );
 
@@ -200,10 +390,15 @@ $(document).ready(function () {
 
     $.validator.addMethod("checkFutureDate", function (value, element) {
             if ($.fn.isNotRequiredAndEmpty(value, element)) return true;
-            var enteredDate = new Date(value);
-            var today = new Date();
+            var pattern = /(\d{2})-(\d{2})-(\d{4})/g;
+            var matches = pattern.exec(value);
+            if (matches == null || matches.length < 4) {
+                return false;
+            }
+            var enteredDate = new Date(matches[3], matches[2] - 1, matches[1]);
+            var reference = new Date();
+            var today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate());
             return enteredDate > today;
-
         }, "Please enter a date in the future."
     );
 
@@ -232,22 +427,21 @@ $(document).ready(function () {
 
     /* Start - checkNoneSelectedAlone*/
 
-    $.fn.checkNoneSelectedAlone = function (name_array) {
+    $.fn.checkNoneSelectedAlone = function (nameArray) {
         var $validator = $('form').validate();
         var errors = {};
-        var final_result = true;
-        $.each(name_array, function (i, elem) {
-            var fieldSetElem = $('fieldset[name="' + elem + '"]');
-            var result = isValidForNoneSelection(fieldSetElem);
+        var result = true;
+        $.each(nameArray, function (i, element) {
+            var fieldSetElem = $('fieldset[name="' + element + '"]');
+            result = isValidForNoneSelection(fieldSetElem);
             if (!result) {
-                errors[elem] = "If 'None' is selected, no other options can be selected.";
-                final_result = false;
+                errors[element] = "If 'None' is selected, no other options can be selected.";
             }
         });
-        if (!final_result) {
+        if (!result) {
             $validator.showErrors(errors);
         }
-        return final_result;
+        return result;
     };
 
     var isValidForNoneSelection = function (element) {
@@ -337,61 +531,97 @@ $(document).ready(function () {
     /* Start - JS to Prepopulate Data in the Form */
     var populateDataConcepts = function ($div, value) {
         $.each(value, function (k, v) {
-            $div.find('[data-concept="' + k + '"]').val(v);
+            if (v instanceof Array) {
+                $div.find('[data-concept="' + k + '"]').val(v);
+            } else {
+                var elements = $div.find('[data-concept="' + k + '"]');
+                $.each(elements, function(i, element) {
+                    applyValue(element, v);
+                });
+            }
         });
     };
-    var populateNonConceptFields = function (prePopulateJSON) {
-        $.each(prePopulateJSON, function (key, value) {
-            var $elementWithNameAttr = $('[name="' + key + '"]');
-            $elementWithNameAttr.val(value);
-        });
 
+    var populateNonConceptFields = function (prePopulateJson) {
+        $.each(prePopulateJson, function (key, value) {
+            var $elements = $('[name="' + key + '"]');
+            if (value instanceof Array) {
+                $elements.val(value);
+            } else {
+                $.each($elements, function (i, element) {
+                    applyValue(element, value);
+                });
+            }
+        });
     };
-    var populateObservations = function (prePopulateJSON) {
-        $.each(prePopulateJSON, function (key, value) {
+
+    var applyValue = function (element, value) {
+        if ($(element).is(':checkbox') || $(element).is(':radio')) {
+            if ($(element).val() == value) {
+                $(element).prop('checked', true);
+            }
+        } else {
+            $(element).val(value);
+        }
+    };
+
+    var populateObservations = function (prePopulateJson) {
+        $.each(prePopulateJson, function (key, value) {
             if (value instanceof Object) {
+                // check if this is a grouping observation.
                 var $div = $('div[data-concept="' + key + '"]');
-                if ($div.length > 1) {
-                    return;
-                }
-                var $dataElement = $($('[name="' + key + '"]')[0]);
-                if ($dataElement.prop('tagName') == 'FIELDSET') {
-                    $.each(value, function (i, val) {
-                        if (val instanceof Array) {
-                            $.each(val, function (i, v) {
-                                $dataElement.find($("input[type=checkbox][value='" + v + "']")).attr('checked', 'true');
+                if ($div.length > 0) {
+                    // we are dealing with grouping
+                    if (value instanceof Array) {
+                        $.each(value, function (i, element) {
+                            if (i == 0) {
+                                populateDataConcepts($div, element);
+                            } else {
+                                var $clonedDiv = $div.clone(true);
+                                populateDataConcepts($clonedDiv, element);
+                                $div.after($clonedDiv);
+                            }
+                        });
+                    } else {
+                        populateDataConcepts($div, value);
+                    }
+                } else {
+                    // we are not dealing with repeating
+                    if (value instanceof Array) {
+                        var elements = $('[data-concept="' + key + '"]');
+                        if (elements.length < value.length) {
+                            $.each(value, function (i, valueElement) {
+                                if (i == 0) {
+                                    $.each(elements, function(i, element) {
+                                        applyValue(element, valueElement);
+                                    });
+                                } else {
+                                    var $div = $(elements).closest('.repeat, .custom-repeat');
+                                    var $clonedDiv = $div.clone(true);
+                                    $div.after($clonedDiv);
+                                    elements = $clonedDiv.find('[data-concept="' + key + '"]');
+                                    $.each(elements, function(i, element) {
+                                        applyValue(element, valueElement);
+                                    });
+                                }
                             });
                         } else {
-                            $dataElement.find($("input[type=checkbox][value='" + val + "']")).attr('checked', 'true');
+                            $.each(value, function (i, valueElement) {
+                                $.each(elements, function(i, element) {
+                                    applyValue(element, valueElement);
+                                });
+                            });
                         }
-                    });
-                } else if (value instanceof Array) {
-                    $.each(value, function (i, elem) {
-                        if (i == 0) {
-                            populateDataConcepts($div, elem);
-                        } else {
-                            var $newDiv = $div.clone(true);
-                            populateDataConcepts($newDiv, elem);
-                            $div.after($newDiv);
-                        }
-                    });
-                } else {
-                    populateDataConcepts($div, value);
+                    } else {
+                        populateDataConcepts($div, value);
+                    }
                 }
             }
             else {
-                var $dataConceptElement = $('[data-concept="' + key + '"]');
-                if ($dataConceptElement.prop('tagName') == 'FIELDSET') {
-                    $dataConceptElement.find($("input[type=checkbox][value='" + value + "']")).attr('checked', 'true');
-                } else {
-                    if ($dataConceptElement.is(':checkbox') || $dataConceptElement.is(':radio')) {
-                        if ($dataConceptElement.val() == value) {
-                            $dataConceptElement.prop('checked', true);
-                        }
-                    } else {
-                        $dataConceptElement.val(value);
-                    }
-                }
+                var $elements = $('[data-concept="' + key + '"]');
+                $.each($elements, function (i, element) {
+                    applyValue(element, value);
+                });
             }
         });
     };
@@ -401,95 +631,85 @@ $(document).ready(function () {
     if (prePopulateData != '') {
         console.time("Starting population");
         var prePopulateJSON = JSON.parse(prePopulateData);
-        populateNonConceptFields(prePopulateJSON['patient'] || {});
-        populateNonConceptFields(prePopulateJSON['encounter'] || {});
-        populateNonConceptFields(prePopulateJSON['consultation'] || {});
-        populateNonConceptFields(prePopulateJSON['observation'] || {});
-        populateObservations(prePopulateJSON['observation'] || {});
+        $.each(prePopulateJSON, function(key, value) {
+            if (key === 'observation') {
+                populateObservations(value);
+            } else {
+                populateNonConceptFields(value);
+            }
+        });
         console.timeEnd("Starting population");
     }
-
-
     /* End - JS to Prepopulate Data in the Form */
 
     /* Start - Code to Serialize form along with Data-Concepts */
     $.fn.serializeEncounterForm = function () {
-        var jsonResult = $.extend({}, serializeNonConceptElements(this), serializeConcepts(this), serializeNestedConcepts(this));
-        var patient = {};
-        var encounter = {};
-        var consultation = {};
-        var observation = {};
+        var jsonResult = $.extend({}, serializeNonConceptElements(this),
+            serializeConcepts(this), serializeNestedConcepts(this));
+        var completeObject = {};
+        var defaultKey = "observation";
         $.each(jsonResult, function (k, v) {
-            if (k.indexOf('patient') === 0) {
-                patient[k] = v;
-            } else if (k.indexOf('encounter') === 0) {
-                encounter[k] = v;
-            } else if (k.indexOf('consultation') === 0) {
-                consultation[k] = v;
-            } else {
-                observation[k] = v;
+            var key = defaultKey;
+            var dotIndex = k.indexOf(".");
+            if (dotIndex >= 0) {
+                key = k.substr(0, k.indexOf("."));
             }
+            var objects = completeObject[key];
+            if (objects === undefined) {
+                objects = {};
+                completeObject[key] = objects;
+            }
+            objects[k] = v;
         });
-        var finalResult = {};
-        finalResult['patient'] = patient;
-        finalResult['encounter'] = encounter;
-        finalResult['consultation'] = consultation;
-        finalResult['observation'] = observation;
-        return  finalResult;
+        return completeObject;
     };
 
     var serializeNonConceptElements = function ($form) {
-        var o = {};
-        var $input_elements = $form.find('[name]').not('[data-concept]');
-        $.each($input_elements, function (i, element) {
-            if (isCheckBoxAndChecked($(element))) {
-                o = pushIntoArray(o, $(element).parent().attr('name'), $(element).val());
-            } else if (notACheckBoxOrFieldSet($(element))) {
-                o = pushIntoArray(o, $(element).attr('name'), $(element).val());
+        var object = {};
+        var $inputElements = $form.find('[name]').not('[data-concept]');
+        $.each($inputElements, function (i, element) {
+            if ($(element).is(':checkbox') || $(element).is(':radio')) {
+                if ($(element).is(':checked')) {
+                    object = pushIntoArray(object, $(element).attr('name'), $(element).val());
+                }
+            } else {
+                object = pushIntoArray(object, $(element).attr('name'), $(element).val());
             }
         });
-        return o;
-    };
-
-    var isCheckBoxAndChecked = function ($element) {
-        return $element.attr('type') == 'checkbox' && $element.is(':checked');
-    };
-
-    var notACheckBoxOrFieldSet = function ($element) {
-        return $element.attr('type') != 'checkbox' && $element.prop('tagName') != 'FIELDSET';
+        return object;
     };
 
     var serializeNestedConcepts = function ($form) {
         var result = {};
-        var parent_divs = $form.find('div[data-concept]');
-        $.each(parent_divs, function (i, element) {
-            var $allConcepts = $(element).find('*[data-concept]:visible');
+        var parentDivs = $form.find('div[data-concept]').filter(':visible');
+        $.each(parentDivs, function (i, element) {
+            var $allConcepts = $(element).find('*[data-concept]');
             result = pushIntoArray(result, $(element).attr('data-concept'), jsonifyConcepts($allConcepts));
         });
         return result;
     };
 
     var serializeConcepts = function ($form) {
-        var o = {};
-        var allConcepts = $form.find('*[data-concept]:visible');
+        var object = {};
+        var allConcepts = $form.find('*[data-concept]').filter(':visible');
         $.each(allConcepts, function (i, element) {
-            if ($(element).closest('.section').attr('data-concept') == undefined) {
+            if ($(element).closest('.section, .concept-set').attr('data-concept') == undefined) {
                 var jsonifiedConcepts = jsonifyConcepts($(element));
                 if (JSON.stringify(jsonifiedConcepts) != '{}' && jsonifiedConcepts != "") {
                     $.each(jsonifiedConcepts, function (key, value) {
-                        if (o[key] !== undefined) {
-                            if (!o[key].push) {
-                                o[key] = [o[key]];
+                        if (object[key] !== undefined) {
+                            if (!object[key].push) {
+                                object[key] = [object[key]];
                             }
-                            o[key].push(value || '');
+                            object[key].push(value || '');
                         } else {
-                            o[key] = value || '';
+                            object[key] = value || '';
                         }
                     });
                 }
             }
         });
-        return o;
+        return object;
     };
 
     var jsonifyConcepts = function ($allConcepts) {
@@ -506,33 +726,64 @@ $(document).ready(function () {
         return o;
     };
 
-    var pushIntoArray = function (obj, key, value) {
+    var pushIntoArray = function (object, key, value) {
         if (JSON.stringify(value) == '{}' || value == "") {
-            return obj;
+            return object;
         }
-        if (obj[key] !== undefined) {
-            if (!obj[key].push) {
-                obj[key] = [obj[key]];
+        if (object[key] !== undefined) {
+            if (!object[key].push) {
+                object[key] = [object[key]];
             }
-            obj[key].push(value || '');
+            object[key].push(value || '');
         } else {
-            obj[key] = value || '';
+            object[key] = value || '';
         }
-        return obj;
+        return object;
     };
-
-    /* Called by the Activity WebViewActivity*/
-    document.populateFingeprint = function (jsonString) {
-        $.each(jsonString, function (key, value) {
-            var $inputField = $("input[name='" + key + "']");
-            $inputField.val(value);
-            $inputField.trigger('change');  //Need this to trigger the event so AMRS id gets populated.
-        })
-    };
-    $('.fingerprint_btn').click(function () {
-        fingerprintComponent.startFingerprintIntent($(this).parent().find("input[type='text']").attr('name'));
-    });
 
     /* End - Code to Serialize form along with Data-Concepts */
+
+    //Start getting medications Summary
+    $.fn.currentMedication = function () {
+        var medicationObject = JSON.parse(imagingComponent.getCurrentMedication());
+        var medicationArray = new Array();
+        for(var key in medicationObject ){
+            medicationArray[key] = medicationObject[key];
+        }
+        return medicationArray;
+    };
+    $.fn.medicationFrequency = function () {
+        var medicationObject = JSON.parse(imagingComponent.getCurrentMedicationFrequency());
+        var medicationFrequency = new Array();
+        for(var key in medicationObject ){
+            medicationFrequency[key] = medicationObject[key];
+        }
+        return medicationFrequency;
+    };
+    $.fn.medicationDose = function () {
+        var medicationObject = JSON.parse(imagingComponent.getCurrentMedicationDose());
+        var medicationDose = new Array();
+        for(var key in medicationObject ){
+            medicationDose[key] = medicationObject[key];
+        }
+        return medicationDose;
+    };
+    $.fn.medicationStartDate = function () {
+        var medicationObject = JSON.parse(imagingComponent.getCurrentMedicationStartDate());
+        var medicationStartDate = new Array();
+        for(var key in medicationObject ){
+            medicationStartDate[key] = medicationObject[key];
+        }
+        return medicationStartDate;
+    };
+    $.fn.medicationStopDate = function () {
+        var medicationObject = JSON.parse(imagingComponent.getCurrentMedicationStopDate());
+        var medicationStopDate = new Array();
+        for(var key in medicationObject ){
+            medicationStopDate[key] = medicationObject[key];
+        }
+        return medicationStopDate;
+    };
+    //End of getting medications Summary
 
 });
