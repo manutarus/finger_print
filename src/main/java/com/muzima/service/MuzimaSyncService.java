@@ -151,7 +151,7 @@ public class MuzimaSyncService {
         Log.i(TAG, "Voided forms are deleted");
         List<Form> voidedForms = new ArrayList<Form>();
         for( Form form : forms){
-            if(form.isVoided()){
+            if(form.isRetired()){
                 voidedForms.add(form);
             }
         }

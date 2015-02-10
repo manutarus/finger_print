@@ -552,7 +552,7 @@ public class FingerPrintActivity
                 for (PersonAttribute personAttribute1 : personAttribute) {
                     if (personAttribute1.getAttributeType().getName().equalsIgnoreCase(attributeName)) {
                         patientRecord = new PatientFingerPrints();
-                        patientRecord.setTemplate(Base64.decode(personAttribute1.getValue(), Base64.DEFAULT));
+                        patientRecord.setTemplate(Base64.decode(personAttribute1.getAttribute(), Base64.DEFAULT));
                         patientRecord.setPatient(patient);
                         patientsFingerprintsRecords.add(patientRecord);
                     }
